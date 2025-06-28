@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Rnd } from 'react-rnd';
 import {
   Card,
@@ -15,17 +15,26 @@ import {
   Menu,
   MenuItem,
   CardMedia,
-  TableFooter,
   Link,
   Tooltip,
+  TableFooter,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
+
 import CloseIcon from '@mui/icons-material/Close';
 import ReplayIcon from '@mui/icons-material/Replay';
 import PublishIcon from '@mui/icons-material/Publish';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PendingIcon from '@mui/icons-material/Pending';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import LocationPinIcon from '@mui/icons-material/LocationPin';
+import SpeedIcon from '@mui/icons-material/Speed';
+import RouteIcon from '@mui/icons-material/Route';
+import AdjustIcon from "@mui/icons-material/Adjust";
+import InfoIcon from "@mui/icons-material/Info";
+import LocalParkingIcon from "@mui/icons-material/LocalParking";
+import DirectionsIcon from "@mui/icons-material/Directions";
 
 import { useTranslation } from './LocalizationProvider';
 import RemoveDialog from './RemoveDialog';
@@ -33,13 +42,12 @@ import PositionValue from './PositionValue';
 import { useDeviceReadonly } from '../util/permissions';
 import usePositionAttributes from '../attributes/usePositionAttributes';
 import { devicesActions } from '../../store';
-import { useCatch, useCatchCallback } from '../../reactHelper';
+import { useCatch } from '../../reactHelper';
 import { useAttributePreference } from '../util/preferences';
 
 const useStyles = makeStyles()((theme, { desktopPadding }) => ({
   card: {
     pointerEvents: 'auto',
-    width: theme.dimensions.popupMaxWidth,
   },
   media: {
     height: theme.dimensions.popupImageHeight,
@@ -51,11 +59,27 @@ const useStyles = makeStyles()((theme, { desktopPadding }) => ({
     color: theme.palette.primary.contrastText,
     mixBlendMode: 'difference',
   },
-  header: {
+  iconWrapper: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: theme.spacing(1, 1, 0, 2),
+    gap: theme.spacing(0.5),
+    color: theme.palette.primary.main,
+    borderBottom: "none",
+  },
+  header: {
+    display: "flex",
+    alignItems: "center",
+    padding: theme.spacing(0.5, 1, 0.5, 0),
+    position: "relative",
+    "&::after": {
+      content: '""',
+      position: "absolute",
+      bottom: 0,
+      left: theme.spacing(1),
+      right: theme.spacing(1),
+      height: theme.spacing(0.1),
+      backgroundColor: theme.palette.grey[400],
+    },
   },
   content: {
     paddingTop: theme.spacing(1),
@@ -63,10 +87,13 @@ const useStyles = makeStyles()((theme, { desktopPadding }) => ({
     maxHeight: theme.dimensions.cardContentMaxHeight,
     overflow: 'auto',
   },
-  icon: {
-    width: '25px',
-    height: '25px',
-    filter: 'brightness(0) invert(1)',
+  keyIcon: {
+    color: theme.palette.error.main,
+  },
+  headerTitle: {
+    color: theme.palette.primary.main,
+    fontWeight: 600,
+    fontSize: theme.typography.pxToRem(15),
   },
   table: {
     '& .MuiTableCell-sizeSmall': {
@@ -78,6 +105,8 @@ const useStyles = makeStyles()((theme, { desktopPadding }) => ({
     },
   },
   cell: {
+    display: 'flex',
+    alignItems: 'center',
     borderBottom: 'none',
   },
   actions: {
@@ -98,18 +127,23 @@ const useStyles = makeStyles()((theme, { desktopPadding }) => ({
     },
     transform: 'translateX(-50%)',
   },
+  statusIcon: {
+    fontSize: '20px',
+    color: theme.palette.primary.main,
+  },
 }));
 
-const StatusRow = ({ name, content }) => {
+const StatusRow = ({ icon, content }) => {
   const { classes } = useStyles({ desktopPadding: 0 });
-
   return (
     <TableRow>
-      <TableCell className={classes.cell}>
-        <Typography variant="body2">{name}</Typography>
-      </TableCell>
-      <TableCell className={classes.cell}>
-        <Typography variant="body2" color="textSecondary">{content}</Typography>
+      <TableCell colSpan={2} style={{ borderBottom: 'none' }}>
+        <div className={classes.iconWrapper}>
+          {icon}
+          <Typography variant="body2" color="textSecondary" fontWeight="bold">
+            {content}
+          </Typography>
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -129,14 +163,20 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
 
   const deviceImage = device?.attributes?.deviceImage;
 
-  const positionAttributes = usePositionAttributes(t);
+  usePositionAttributes(t);
   const positionItems = useAttributePreference('positionItems', 'fixTime,address,speed,totalDistance');
+
+  const keyIconMap = {
+    fixTime: <AccessTimeIcon fontSize="small" className={classes.keyIcon} />,
+    address: <LocationPinIcon fontSize="small" className={classes.keyIcon} />,
+    speed: <SpeedIcon fontSize="small" className={classes.keyIcon} />,
+    totalDistance: <RouteIcon fontSize="small" className={classes.keyIcon} />,
+  };
 
   const navigationAppLink = useAttributePreference('navigationAppLink');
   const navigationAppTitle = useAttributePreference('navigationAppTitle');
 
   const [anchorEl, setAnchorEl] = useState(null);
-
   const [removing, setRemoving] = useState(false);
 
   const handleRemove = useCatch(async (removed) => {
@@ -151,7 +191,7 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
     setRemoving(false);
   });
 
-  const handleGeofence = useCatchCallback(async () => {
+  const handleGeofence = useCatch(async () => {
     const newItem = {
       name: t('sharedGeofence'),
       area: `CIRCLE (${position.latitude} ${position.longitude}, 50)`,
@@ -168,14 +208,12 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceId: position.deviceId, geofenceId: item.id }),
       });
-      if (!permissionResponse.ok) {
-        throw Error(await permissionResponse.text());
-      }
+      if (!permissionResponse.ok) throw Error(await permissionResponse.text());
       navigate(`/settings/geofence/${item.id}`);
     } else {
       throw Error(await response.text());
     }
-  }, [navigate, position]);
+  });
 
   return (
     <>
@@ -193,52 +231,63 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
                   className={`${classes.media} draggable-header`}
                   image={`/api/media/${device.uniqueId}/${deviceImage}`}
                 >
-                  <IconButton
-                    size="small"
-                    onClick={onClose}
-                    onTouchStart={onClose}
-                  >
+                  <IconButton size="small" onClick={onClose} onTouchStart={onClose}>
                     <CloseIcon fontSize="small" className={classes.mediaButton} />
                   </IconButton>
                 </CardMedia>
               ) : (
                 <div className={`${classes.header} draggable-header`}>
-                  <Typography variant="body2" color="textSecondary">
-                    {device.name}
-                  </Typography>
-                  <IconButton
-                    size="small"
-                    onClick={onClose}
-                    onTouchStart={onClose}
-                  >
-                    <CloseIcon fontSize="small" />
+                  <IconButton size="small">
+                    <AdjustIcon fontSize="small" color="error" />
                   </IconButton>
+                  <Typography className={classes.headerTitle}>{device.name}</Typography>
+                  <div style={{ marginLeft: "auto" }}>
+                    <IconButton size="small">
+                      <InfoIcon className={classes.statusIcon} />
+                    </IconButton>
+                    {position && (
+                      <IconButton
+                        size="small"
+                        component="a"
+                        href={`https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <DirectionsIcon className={classes.statusIcon} />
+                      </IconButton>
+                    )}
+                    <IconButton size="small">
+                      <LocalParkingIcon className={classes.statusIcon} />
+                    </IconButton>
+                  </div>
                 </div>
               )}
               {position && (
                 <CardContent className={classes.content}>
                   <Table size="small" classes={{ root: classes.table }}>
                     <TableBody>
-                      {positionItems.split(',').filter((key) => position.hasOwnProperty(key) || position.attributes.hasOwnProperty(key)).map((key) => (
-                        <StatusRow
-                          key={key}
-                          name={positionAttributes[key]?.name || key}
-                          content={(
-                            <PositionValue
-                              position={position}
-                              property={position.hasOwnProperty(key) ? key : null}
-                              attribute={position.hasOwnProperty(key) ? null : key}
-                            />
-                          )}
-                        />
-                      ))}
-
+                      {positionItems
+                        .split(',')
+                        .filter((key) => position.hasOwnProperty(key) || position.attributes.hasOwnProperty(key))
+                        .map((key) => (
+                          <StatusRow
+                            key={key}
+                            icon={keyIconMap[key]}
+                            content={
+                              <PositionValue
+                                position={position}
+                                property={position.hasOwnProperty(key) ? key : null}
+                                attribute={position.hasOwnProperty(key) ? null : key}
+                              />
+                            }
+                          />
+                        ))}
                     </TableBody>
                     <TableFooter>
                       <TableRow>
                         <TableCell colSpan={2} className={classes.cell}>
                           <Typography variant="body2">
-                            <Link component={RouterLink} to={`/position/${position.id}`}>{t('sharedShowDetails')}</Link>
+                            <Link to={`/position/${position.id}`}>{t('sharedShowDetails')}</Link>
                           </Typography>
                         </TableCell>
                       </TableRow>
@@ -248,27 +297,22 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
               )}
               <CardActions classes={{ root: classes.actions }} disableSpacing>
                 <Tooltip title={t('sharedExtra')}>
-                  <IconButton
-                    color="secondary"
-                    onClick={(e) => setAnchorEl(e.currentTarget)}
-                    disabled={!position}
-                  >
+                  <IconButton color="secondary" onClick={(e) => setAnchorEl(e.currentTarget)} disabled={!position}>
                     <PendingIcon />
                   </IconButton>
                 </Tooltip>
+                <Tooltip title={t("sharedRemoveCard")}>
+                  <IconButton onClick={onClose} onTouchStart={onClose}>
+                    <CloseIcon color="error" />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title={t('reportReplay')}>
-                  <IconButton
-                    onClick={() => navigate('/replay')}
-                    disabled={disableActions || !position}
-                  >
+                  <IconButton onClick={() => navigate('/replay')} disabled={disableActions || !position}>
                     <ReplayIcon />
                   </IconButton>
                 </Tooltip>
                 <Tooltip title={t('commandTitle')}>
-                  <IconButton
-                    onClick={() => navigate(`/settings/device/${deviceId}/command`)}
-                    disabled={disableActions}
-                  >
+                  <IconButton onClick={() => navigate(`/settings/device/${deviceId}/command`)} disabled={disableActions}>
                     <PublishIcon />
                   </IconButton>
                 </Tooltip>
@@ -281,11 +325,7 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
                   </IconButton>
                 </Tooltip>
                 <Tooltip title={t('sharedRemove')}>
-                  <IconButton
-                    color="error"
-                    onClick={() => setRemoving(true)}
-                    disabled={disableActions || deviceReadonly}
-                  >
+                  <IconButton color="error" onClick={() => setRemoving(true)} disabled={disableActions || deviceReadonly}>
                     <DeleteIcon />
                   </IconButton>
                 </Tooltip>
@@ -302,16 +342,13 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
           <MenuItem component="a" target="_blank" href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${position.latitude}%2C${position.longitude}&heading=${position.course}`}>{t('linkStreetView')}</MenuItem>
           {navigationAppTitle && <MenuItem component="a" target="_blank" href={navigationAppLink.replace('{latitude}', position.latitude).replace('{longitude}', position.longitude)}>{navigationAppTitle}</MenuItem>}
           {!shareDisabled && !user.temporary && (
-            <MenuItem onClick={() => navigate(`/settings/device/${deviceId}/share`)}><Typography color="secondary">{t('deviceShare')}</Typography></MenuItem>
+            <MenuItem onClick={() => navigate(`/settings/device/${deviceId}/share`)}>
+              <Typography color="secondary">{t('deviceShare')}</Typography>
+            </MenuItem>
           )}
         </Menu>
       )}
-      <RemoveDialog
-        open={removing}
-        endpoint="devices"
-        itemId={deviceId}
-        onResult={(removed) => handleRemove(removed)}
-      />
+      <RemoveDialog open={removing} endpoint="devices" itemId={deviceId} onResult={handleRemove} />
     </>
   );
 };
