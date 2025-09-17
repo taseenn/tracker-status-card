@@ -1,14 +1,14 @@
 import {
   Fragment, useCallback, useEffect, useRef, useState,
 } from 'react';
-import { useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   IconButton, Table, TableBody, TableCell, TableHead, TableRow,
 } from '@mui/material';
+import { useSelector } from 'react-redux';
 import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import LocationSearchingIcon from '@mui/icons-material/LocationSearching';
-import ReportFilter from './components/ReportFilter';
+import ReportFilter, { updateReportParams } from './components/ReportFilter';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import PageLayout from '../common/components/PageLayout';
 import ReportsMenu from './components/ReportsMenu';
@@ -28,20 +28,26 @@ import scheduleReport from './common/scheduleReport';
 import MapScale from '../map/MapScale';
 import { useRestriction } from '../common/util/permissions';
 import CollectionActions from '../settings/components/CollectionActions';
+import fetchOrThrow from '../common/util/fetchOrThrow';
+import SelectField from '../common/components/SelectField';
 
-const RouteReportPage = () => {
+const PositionsReportPage = () => {
   const navigate = useNavigate();
   const { classes } = useReportStyles();
   const t = useTranslation();
 
-  const positionAttributes = usePositionAttributes(t);
+  const [searchParams, setSearchParams] = useSearchParams();
 
+  const positionAttributes = usePositionAttributes(t);
+  
   const devices = useSelector((state) => state.devices.items);
+
   const readonly = useRestriction('readonly');
 
   const [available, setAvailable] = useState([]);
   const [columns, setColumns] = useState(['fixTime', 'latitude', 'longitude', 'speed', 'address']);
   const [items, setItems] = useState([]);
+  const geofenceId = searchParams.has('geofenceId') ? parseInt(searchParams.get('geofenceId')) : null;
   const [loading, setLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
 
@@ -57,61 +63,60 @@ const RouteReportPage = () => {
     setSelectedItem(items.find((it) => it.id === positionId));
   }, [items, setSelectedItem]);
 
-  const handleSubmit = useCatch(async ({ deviceIds, groupIds, from, to, type }) => {
-    const query = new URLSearchParams({ from, to });
-    deviceIds.forEach((deviceId) => query.append('deviceId', deviceId));
-    groupIds.forEach((groupId) => query.append('groupId', groupId));
-    if (type === 'export') {
-      window.location.assign(`/api/reports/route/xlsx?${query.toString()}`);
-    } else if (type === 'mail') {
-      const response = await fetch(`/api/reports/route/mail?${query.toString()}`);
-      if (!response.ok) {
-        throw Error(await response.text());
-      }
-    } else {
-      setLoading(true);
-      try {
-        const response = await fetch(`/api/reports/route?${query.toString()}`, {
+  const onShow = useCatch(async ({ deviceIds, groupIds, from, to }) => {
+    setLoading(true);
+    try {
+      const allData = [];
+      for (const deviceId of deviceIds) {
+        const query = new URLSearchParams({ deviceId, from, to });
+        deviceIds.forEach((deviceId) => query.append('deviceId', deviceId));
+      groupIds.forEach((groupId) => query.append('groupId', groupId));
+        if (geofenceId) query.append('geofenceId', geofenceId);
+
+        const response = await fetchOrThrow(`/api/positions?${query.toString()}`, {
           headers: { Accept: 'application/json' },
         });
-        if (response.ok) {
-          const data = await response.json();
-          const keySet = new Set();
-          const keyList = [];
-          data.forEach((position) => {
-            Object.keys(position).forEach((it) => keySet.add(it));
-            Object.keys(position.attributes).forEach((it) => keySet.add(it));
-          });
-          ['id', 'deviceId', 'outdated', 'network', 'attributes'].forEach((key) => keySet.delete(key));
-          Object.keys(positionAttributes).forEach((key) => {
-            if (keySet.has(key)) {
-              keyList.push(key);
-              keySet.delete(key);
-            }
-          });
-          setAvailable([...keyList, ...keySet].map((key) => [key, positionAttributes[key]?.name || key]));
-          setItems(data);
-        } else {
-          throw Error(await response.text());
-        }
-      } finally {
-        setLoading(false);
+        const data = await response.json();
+        allData.push(...data);
       }
+
+      const keySet = new Set();
+      const keyList = [];
+      allData.forEach((position) => {
+        Object.keys(position).forEach((it) => keySet.add(it));
+        Object.keys(position.attributes).forEach((it) => keySet.add(it));
+      });
+      ['id', 'deviceId', 'outdated', 'network', 'attributes'].forEach((key) => keySet.delete(key));
+      Object.keys(positionAttributes).forEach((key) => {
+        if (keySet.has(key)) {
+          keyList.push(key);
+          keySet.delete(key);
+        }
+      });
+      setAvailable([...keyList, ...keySet].map((key) => [key, positionAttributes[key]?.name || key]));
+      setItems(allData);
+    } finally {
+      setLoading(false);
     }
   });
 
-  const handleSchedule = useCatch(async (deviceIds, groupIds, report) => {
-    report.type = 'route';
-    const error = await scheduleReport(deviceIds, groupIds, report);
-    if (error) {
-      throw Error(error);
-    } else {
-      navigate('/reports/scheduled');
+  const onExport = useCatch(async ({ deviceIds, from, to }) => {
+    const query = new URLSearchParams({ from, to });
+    if (geofenceId) {
+      query.append('geofenceId', geofenceId)
     }
+    deviceIds.forEach((deviceId) => query.append('deviceId', deviceId));
+    window.location.assign(`/api/positions/csv?${query.toString()}`);
+  });
+
+  const onSchedule = useCatch(async (deviceIds, groupIds, report) => {
+    report.type = 'route';
+    await scheduleReport(deviceIds, groupIds, report);
+    navigate('/reports/scheduled');
   });
 
   return (
-    <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportRoute']}>
+    <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportPositions']}>
       <div className={classes.container}>
         {selectedItem && (
           <div className={classes.containerMap}>
@@ -134,7 +139,19 @@ const RouteReportPage = () => {
         )}
         <div className={classes.containerMain}>
           <div className={classes.header}>
-            <ReportFilter handleSubmit={handleSubmit} handleSchedule={handleSchedule} multiDevice includeGroups loading={loading}>
+            <ReportFilter onShow={onShow} onExport={onExport} onSchedule={onSchedule} deviceType="multiple" loading={loading}>
+              <div className={classes.filterItem}>
+                <SelectField
+                  value={geofenceId}
+                  onChange={(e) => {
+                    const values = e.target.value ? [e.target.value] : [];
+                    updateReportParams(searchParams, setSearchParams, 'geofenceId', values);
+                  }}
+                  endpoint="/api/geofences"
+                  label={t('sharedGeofence')}
+                  fullWidth
+                />
+              </div>
               <ColumnSelect
                 columns={columns}
                 setColumns={setColumns}
@@ -167,7 +184,7 @@ const RouteReportPage = () => {
                       </IconButton>
                     )}
                   </TableCell>
-                  <TableCell>{devices[item.deviceId].name}</TableCell>
+                    <TableCell>{devices[item.deviceId].name}</TableCell>
                   {columns.map((key) => (
                     <TableCell key={key}>
                       <PositionValue
@@ -183,13 +200,12 @@ const RouteReportPage = () => {
                       endpoint="positions"
                       readonly={readonly}
                       setTimestamp={() => {
-                        // NOTE: Gets called when an item was removed
                         setItems(items.filter((position) => position.id !== item.id));
                       }}
                     />
                   </TableCell>
                 </TableRow>
-              )) : (<TableShimmer columns={columns.length + 2} startAction />)}
+              )) : (<TableShimmer columns={columns.length + 1} startAction />)}
             </TableBody>
           </Table>
         </div>
@@ -198,4 +214,4 @@ const RouteReportPage = () => {
   );
 };
 
-export default RouteReportPage;
+export default PositionsReportPage;
